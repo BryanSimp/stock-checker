@@ -57,10 +57,15 @@ STOP = threading.Event()
 # --------------------------------------------------------------------------- config
 
 
+DEFAULT_STORE_ID = "095"  # Brentwood, MO (St. Louis)
+MAX_ENV_ITEMS = 20
+
+
 @dataclass
 class Item:
     name: str
     url: str
+    auto_name: bool = False  # no name given; replaced by the page title after the first check
 
 
 @dataclass
@@ -76,46 +81,93 @@ class Config:
     mention_id: str = ""
 
 
-def load_config(path: Path) -> Config:
-    if not path.exists():
-        raise SystemExit(f"Config file not found: {path} (copy config.example.yaml to config.yaml)")
-    raw = yaml.safe_load(path.read_text()) or {}
+class ConfigError(Exception):
+    pass
 
-    store_id = str(raw.get("store_id", "")).strip()
-    if not store_id or not store_id.isdigit():
-        raise SystemExit(f"config: store_id must be a number, got {store_id!r}")
 
-    items = []
+def name_from_url(url: str) -> str:
+    m = re.search(r"/product/\d+/([^/?#]+)", url)
+    words = (m.group(1) if m else url).replace(",", "").replace("-", " ").split()
+    return " ".join(words[:8]) or "item"
+
+
+def parse_item_spec(spec: str, where: str) -> Item:
+    """'Name|URL' or just 'URL'."""
+    name, sep, url = spec.strip().rpartition("|")
+    if not sep:
+        name, url = "", spec.strip()
+    name, url = name.strip(), url.strip()
+    if "microcenter.com/product/" not in url:
+        raise ConfigError(f"{where}: not a Micro Center product URL: {url!r}")
+    return Item(name=name or name_from_url(url), url=url, auto_name=not name)
+
+
+def load_config(path: Path | None, env: dict | None = None) -> Config:
+    """Settings come from environment variables; an optional YAML file can add more.
+
+    Env: STORE_ID (default 095 = Brentwood, MO), ITEM_1..ITEM_20 ("Name|URL" or "URL"),
+    ITEMS (same format, one per line or ';'-separated), INTERVAL_MINUTES,
+    SUMMARY_INTERVAL_HOURS, DISCORD_WEBHOOK_URL, DISCORD_MENTION_ID.
+    Env values override the file.
+    """
+    env = os.environ if env is None else env
+    raw: dict = {}
+    if path and path.exists():
+        raw = yaml.safe_load(path.read_text()) or {}
+        log.info("Loaded config file %s", path)
+
+    def setting(env_key: str, file_key: str, default):
+        val = env.get(env_key, "").strip()
+        return val if val else raw.get(file_key, default)
+
+    store_id = str(setting("STORE_ID", "store_id", DEFAULT_STORE_ID)).strip()
+    if not store_id.isdigit():
+        raise ConfigError(f"STORE_ID must be a number, got {store_id!r}")
+
+    items: list[Item] = []
     for i, entry in enumerate(raw.get("items") or []):
-        name = str((entry or {}).get("name", "")).strip()
         url = str((entry or {}).get("url", "")).strip()
-        if not name or not url:
-            raise SystemExit(f"config: items[{i}] needs both name and url")
-        if "microcenter.com/product/" not in url:
-            raise SystemExit(f"config: items[{i}] url is not a Micro Center product page: {url}")
-        items.append(Item(name=name, url=url))
-    if not items:
-        raise SystemExit("config: items list is empty")
+        name = str((entry or {}).get("name", "")).strip()
+        items.append(parse_item_spec(f"{name}|{url}" if name else url, f"config items[{i}]"))
+    for n in range(1, MAX_ENV_ITEMS + 1):
+        spec = env.get(f"ITEM_{n}", "").strip()
+        if spec:
+            items.append(parse_item_spec(spec, f"ITEM_{n}"))
+    for j, spec in enumerate(re.split(r"[;\n]", env.get("ITEMS", ""))):
+        if spec.strip():
+            items.append(parse_item_spec(spec, f"ITEMS entry {j + 1}"))
+    seen, unique = set(), []
+    for it in items:
+        if it.url not in seen:
+            seen.add(it.url)
+            unique.append(it)
+    if not unique:
+        raise ConfigError("no items to watch: set ITEM_1 (and ITEM_2, ...) to a Micro Center product URL, "
+                          "optionally as 'Name|URL'")
 
-    interval = float(raw.get("interval_minutes", 15))
+    try:
+        interval = float(setting("INTERVAL_MINUTES", "interval_minutes", 15))
+        summary_hours = float(setting("SUMMARY_INTERVAL_HOURS", "summary_interval_hours", 6))
+        jitter = float(setting("JITTER_PCT", "jitter_pct", 0.20))
+        backoff = float(setting("BACKOFF_BASE_SECONDS", "backoff_base_seconds", 30))
+        retries = int(setting("MAX_RETRIES", "max_retries", 3))
+    except ValueError as e:
+        raise ConfigError(f"bad number in settings: {e}") from e
     if interval < MIN_INTERVAL_MINUTES:
-        log.warning("interval_minutes=%s is below the %s minute minimum; using %s",
+        log.warning("interval %s min is below the %s minute minimum; using %s",
                     interval, MIN_INTERVAL_MINUTES, MIN_INTERVAL_MINUTES)
         interval = MIN_INTERVAL_MINUTES
 
-    jitter = float(raw.get("jitter_pct", 0.20))
-    jitter = min(max(jitter, 0.0), 0.5)
-
     return Config(
         store_id=store_id,
-        items=items,
+        items=unique,
         interval_minutes=interval,
-        jitter_pct=jitter,
-        summary_interval_hours=max(float(raw.get("summary_interval_hours", 6)), 0.5),
-        backoff_base_seconds=max(float(raw.get("backoff_base_seconds", 30)), 1),
-        max_retries=max(int(raw.get("max_retries", 3)), 0),
-        webhook_url=os.environ.get("DISCORD_WEBHOOK_URL", "").strip(),
-        mention_id=os.environ.get("DISCORD_MENTION_ID", "").strip(),
+        jitter_pct=min(max(jitter, 0.0), 0.5),
+        summary_interval_hours=max(summary_hours, 0.5),
+        backoff_base_seconds=max(backoff, 1),
+        max_retries=max(retries, 0),
+        webhook_url=env.get("DISCORD_WEBHOOK_URL", "").strip(),
+        mention_id=env.get("DISCORD_MENTION_ID", "").strip(),
     )
 
 
@@ -660,6 +712,8 @@ def check_all(cfg: Config, fetcher: Fetcher, discord: Discord, state: dict, data
             if info.method == "structured":
                 log.warning("%s: stock came from structured data only; it may not be store-specific",
                             item.name)
+            if item.auto_name and info.title:
+                item.name = info.title[:80]
             was_notified = bool(prev and prev.get("error_notified"))
             event, changes, entry = evaluate(prev, info)
             entry["name"] = item.name
@@ -693,7 +747,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--once", action="store_true", help="run one check (plus summary) and exit")
     ap.add_argument("--dry-run", action="store_true", help="print Discord payloads instead of sending; don't save state")
     ap.add_argument("--test-discord", action="store_true", help="send one test message and exit")
-    ap.add_argument("--config", default=os.environ.get("CONFIG_PATH", "/app/config.yaml"))
+    ap.add_argument("--config", default=os.environ.get("CONFIG_PATH", "/data/config.yaml"),
+                    help="optional YAML config; environment variables work without it")
     ap.add_argument("--data-dir", default=os.environ.get("DATA_DIR", "/data"))
     args = ap.parse_args(argv)
 
@@ -702,14 +757,28 @@ def main(argv: list[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, lambda *_: STOP.set())
     signal.signal(signal.SIGINT, lambda *_: STOP.set())
 
-    cfg = load_config(Path(args.config))
+    one_shot = args.once or args.dry_run or args.test_discord
+
+    def fail(msg: str) -> int:
+        """One-shot runs exit; the service waits instead of crash-looping under restart: unless-stopped."""
+        log.error(msg)
+        if one_shot:
+            return 2
+        log.error("Waiting. Fix the stack's environment variables and redeploy.")
+        while not STOP.wait(3600):
+            log.error(msg)
+        return 0
+
+    try:
+        cfg = load_config(Path(args.config))
+    except ConfigError as e:
+        return fail(f"Config error: {e}")
     data_dir = Path(args.data_dir)
     state_path = data_dir / "state.json"
     discord = Discord(cfg.webhook_url, cfg.mention_id, args.dry_run)
 
     if not args.dry_run and not cfg.webhook_url:
-        log.error("DISCORD_WEBHOOK_URL is not set (put it in .env). Use --dry-run to test without it.")
-        return 2
+        return fail("DISCORD_WEBHOOK_URL is not set. Use --dry-run to test without it.")
 
     if args.test_discord:
         ok = discord.send({"embeds": [{
@@ -724,11 +793,17 @@ def main(argv: list[str] | None = None) -> int:
             (data_dir / ".write-test").write_text("ok")
             (data_dir / ".write-test").unlink()
         except OSError as e:
-            log.error("Data dir %s is not writable (%s). On the host: sudo chown 1000:1000 ./data", data_dir, e)
-            return 2
+            return fail(f"Data dir {data_dir} is not writable ({e}). Use a named volume, "
+                        "or chown a bind-mounted folder to 1000:1000.")
 
     state = load_state(state_path)
+    for item in cfg.items:  # show the real product title right away for unnamed items
+        saved = state["items"].get(item.url) or {}
+        if item.auto_name and saved.get("title"):
+            item.name = saved["title"][:80]
     fetcher = Fetcher(cfg)
+    for item in cfg.items:
+        log.info("Watching: %s — %s", item.name, item.url)
     log.info("Store %s · %d item(s) · every %g min ±%d%% · summary every %g h%s",
              cfg.store_id, len(cfg.items), cfg.interval_minutes, cfg.jitter_pct * 100,
              cfg.summary_interval_hours, " · DRY RUN" if args.dry_run else "")

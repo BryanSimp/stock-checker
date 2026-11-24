@@ -1,3 +1,4 @@
+# Local build. For Portainer, use portainer-stack.yml (prebuilt image).
 services:
   checker:
     build: .
@@ -6,10 +7,12 @@ services:
     restart: unless-stopped
     env_file: .env
     volumes:
-      - ./data:/data
-      - ./config.yaml:/app/config.yaml:ro
+      - mc-stock-data:/data
     logging:
       driver: json-file
       options:
         max-size: "5m"
         max-file: "3"
+
+volumes:
+  mc-stock-data:
