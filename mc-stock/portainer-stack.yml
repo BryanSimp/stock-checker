@@ -1,0 +1,43 @@
+# Portainer stack: paste into Stacks → Add stack → Web editor (or use Repository mode
+# with compose path mc-stock/portainer-stack.yml). No host setup needed.
+#
+# Set under "Environment variables" on the stack:
+#   DISCORD_WEBHOOK_URL   required
+#   ITEM_1, ITEM_2, ...   Micro Center product URLs, optionally "Name|URL"
+#   DISCORD_MENTION_ID    optional, your Discord user ID for in-stock pings
+#   STORE_ID              optional, default 095 = Brentwood, MO
+#   INTERVAL_MINUTES      optional, default 15 (minimum 5)
+#   SUMMARY_INTERVAL_HOURS optional, default 6
+#   TZ                    optional, default America/Chicago
+services:
+  checker:
+    image: ghcr.io/bryansimp/stock-checker:latest
+    container_name: mc-stock
+    restart: unless-stopped
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+      DISCORD_MENTION_ID: ${DISCORD_MENTION_ID:-}
+      STORE_ID: ${STORE_ID:-095}
+      INTERVAL_MINUTES: ${INTERVAL_MINUTES:-15}
+      SUMMARY_INTERVAL_HOURS: ${SUMMARY_INTERVAL_HOURS:-6}
+      TZ: ${TZ:-America/Chicago}
+      ITEM_1: ${ITEM_1:-}
+      ITEM_2: ${ITEM_2:-}
+      ITEM_3: ${ITEM_3:-}
+      ITEM_4: ${ITEM_4:-}
+      ITEM_5: ${ITEM_5:-}
+      ITEM_6: ${ITEM_6:-}
+      ITEM_7: ${ITEM_7:-}
+      ITEM_8: ${ITEM_8:-}
+      ITEM_9: ${ITEM_9:-}
+      ITEM_10: ${ITEM_10:-}
+    volumes:
+      - mc-stock-data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+volumes:
+  mc-stock-data:

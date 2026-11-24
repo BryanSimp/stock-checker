@@ -211,10 +211,36 @@ class ConfigTests(unittest.TestCase):
         import tempfile
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             f.write('store_id: "131"\ninterval_minutes: 1\nitems:\n  - {name: A, url: "https://www.microcenter.com/product/1/a"}\n')
-        cfg = c.load_config(Path(f.name))
+        cfg = c.load_config(Path(f.name), env={})
         self.assertEqual(cfg.interval_minutes, 5)
         for _ in range(200):
             self.assertGreaterEqual(c.next_sleep_seconds(cfg), 300)
+
+    def test_env_only_defaults_to_brentwood(self):
+        env = {"ITEM_1": "https://www.microcenter.com/product/687907/amd-ryzen-7-9800x3d-granite-ridge",
+               "ITEM_2": "GPU | https://www.microcenter.com/product/674526/rtx-gpu",
+               "DISCORD_WEBHOOK_URL": "https://discord.example/x"}
+        cfg = c.load_config(Path("/nonexistent.yaml"), env=env)
+        self.assertEqual(cfg.store_id, "095")
+        self.assertEqual(cfg.interval_minutes, 15)
+        self.assertEqual([i.name for i in cfg.items], ["amd ryzen 7 9800x3d granite ridge", "GPU"])
+        self.assertEqual([i.auto_name for i in cfg.items], [True, False])
+        self.assertEqual(cfg.webhook_url, "https://discord.example/x")
+
+    def test_env_overrides_and_items_list(self):
+        env = {"STORE_ID": "131", "INTERVAL_MINUTES": "30",
+               "ITEMS": "A|https://www.microcenter.com/product/1/a; https://www.microcenter.com/product/2/b\n"
+                        "https://www.microcenter.com/product/1/a"}
+        cfg = c.load_config(None, env=env)
+        self.assertEqual((cfg.store_id, cfg.interval_minutes, len(cfg.items)), ("131", 30, 2))
+
+    def test_no_items_is_config_error(self):
+        with self.assertRaises(c.ConfigError):
+            c.load_config(None, env={})
+
+    def test_bad_url(self):
+        with self.assertRaises(c.ConfigError):
+            c.load_config(None, env={"ITEM_1": "https://example.com/x"})
 
 
 if __name__ == "__main__":
