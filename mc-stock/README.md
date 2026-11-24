@@ -17,8 +17,10 @@ State lives in the `mc-stock-data` volume, so restarts and redeploys don't repea
 No files or folders to create on the server. Everything is set in Portainer.
 
 1. **Stacks → Add stack.** Either:
-   - **Repository**: URL `https://github.com/BryanSimp/stock-checker`, reference `refs/heads/main`, compose path `mc-stock/portainer-stack.yml`, or
-   - **Web editor**: paste in `mc-stock/portainer-stack.yml`.
+   - **Repository**: URL `https://github.com/BryanSimp/stock-checker`, reference `refs/heads/main`, compose path `docker-compose.yml` (the default; `mc-stock/docker-compose.yml` also works), or
+   - **Web editor**: paste in `docker-compose.yml`.
+
+   No `.env` file is used. Portainer passes the stack's environment variables in.
 2. **Environment variables** on the stack:
 
    | Variable | Required | Example / default |
@@ -56,13 +58,14 @@ Discord → User Settings → Advanced → Developer Mode on. Then right-click y
 ### Other stores
 The default is Brentwood, MO (`095`). For another store, pick it on microcenter.com and read `storeid=` from the URL, or the `storeid` cookie in DevTools. The checker sends the ID as a `storeid` cookie and as a `?storeid=` URL param on every request. Each log line shows `store=<name>` when the page names the store.
 
-## Local build (docker compose, without Portainer)
+## Without Portainer (plain docker compose)
+The same compose file works. Compose reads variables from your shell, or from a `.env` file next to the compose file if one exists (see `.env.example`):
 ```bash
-cd mc-stock
-cp .env.example .env        # fill in DISCORD_WEBHOOK_URL and ITEM_1...
-docker compose up -d --build
-docker compose logs -f
+git clone https://github.com/BryanSimp/stock-checker && cd stock-checker
+cp mc-stock/.env.example .env   # fill in DISCORD_WEBHOOK_URL and ITEM_1...
+docker compose up -d && docker compose logs -f
 ```
+To run your own build: `docker build -t ghcr.io/bryansimp/stock-checker:latest mc-stock`, then run `docker compose up -d`.
 
 ## Advanced settings
 These also work as environment variables (in Portainer, add them to the `environment:` block first): `JITTER_PCT` (0.20), `BACKOFF_BASE_SECONDS` (30: on 403/429/503/Cloudflare challenge it waits 30s → 60s → 120s), `MAX_RETRIES` (3), `ITEMS` (several `Name|URL` entries, one per line or separated by `;`), `LOG_LEVEL`.

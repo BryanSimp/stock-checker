@@ -1,5 +1,6 @@
-# Portainer stack: paste into Stacks → Add stack → Web editor (or use Repository mode
-# with compose path mc-stock/portainer-stack.yml). No host setup needed.
+# Portainer stack (also works with plain `docker compose up -d`). Pulls the prebuilt image.
+# No host setup and no .env file needed. In Portainer, Repository mode works with
+# compose path "docker-compose.yml" (repo root) or "mc-stock/docker-compose.yml".
 #
 # Set under "Environment variables" on the stack:
 #   DISCORD_WEBHOOK_URL   required
