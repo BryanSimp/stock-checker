@@ -1,0 +1,20 @@
+# Your Micro Center store ID. Pick your store on microcenter.com, then check the
+# URL (?storeid=XXX) or the "storeid" cookie. See README for the full list method.
+store_id: "XXX"
+
+# Minutes between checks. ±20% random jitter is applied. Minimum 5.
+interval_minutes: 15
+
+# Hours between scheduled stock summaries (a summary also posts on startup).
+summary_interval_hours: 6
+
+# Optional tuning
+# jitter_pct: 0.20            # 0.0–0.5
+# backoff_base_seconds: 30    # 403/429 backoff: 30s, 60s, 120s...
+# max_retries: 3
+
+items:
+  - name: "CPU/RAM/Mobo Bundle"
+    url: "https://www.microcenter.com/product/XXXXXX/..."
+  - name: "GPU"
+    url: "https://www.microcenter.com/product/XXXXXX/..."
