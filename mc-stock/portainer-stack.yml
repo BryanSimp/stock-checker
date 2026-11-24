@@ -1,0 +1,29 @@
+# Portainer stack: pulls the prebuilt image from GHCR (no build step).
+#
+# Host prep (once):
+#   sudo mkdir -p /opt/mc-stock
+#   sudo cp config.example.yaml /opt/mc-stock/config.yaml   # then edit it
+#   sudo chown -R 1000:1000 /opt/mc-stock                   # container runs as uid 1000
+#
+# In Portainer, set these under "Environment variables" on the stack:
+#   DISCORD_WEBHOOK_URL   (required)
+#   DISCORD_MENTION_ID    (optional)
+#   TZ                    (optional, e.g. America/New_York)
+#   MC_STOCK_DIR          (optional, default /opt/mc-stock)
+services:
+  checker:
+    image: ghcr.io/bryansimp/stock-checker:latest
+    container_name: mc-stock
+    restart: unless-stopped
+    environment:
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      DISCORD_MENTION_ID: ${DISCORD_MENTION_ID:-}
+      TZ: ${TZ:-UTC}
+      CONFIG_PATH: /data/config.yaml
+    volumes:
+      - ${MC_STOCK_DIR:-/opt/mc-stock}:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"

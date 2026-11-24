@@ -12,7 +12,28 @@ Checks Micro Center product pages (bundles count as products) for stock **at you
 
 State lives in `./data/state.json`, so restarts don't repeat alerts.
 
-## Setup
+## Setup with Portainer (prebuilt image)
+
+GitHub Actions (`.github/workflows/docker-publish.yml`) runs the tests, then builds and pushes `ghcr.io/bryansimp/stock-checker` for amd64 and arm64. It runs on every push to `main` that touches `mc-stock/`, and you can also start it by hand from the Actions tab. Tags: `latest`, `sha-<short>`, and `X.Y.Z` when you push a `vX.Y.Z` git tag.
+
+1. **Host folder (once):**
+   ```bash
+   sudo mkdir -p /opt/mc-stock
+   sudo curl -o /opt/mc-stock/config.yaml https://raw.githubusercontent.com/BryanSimp/stock-checker/main/mc-stock/config.example.yaml
+   sudo nano /opt/mc-stock/config.yaml          # store_id + items
+   sudo chown -R 1000:1000 /opt/mc-stock        # container runs as uid 1000
+   ```
+   `state.json` and `debug/` are written to the same folder.
+2. **Portainer → Stacks → Add stack.** Either paste in `mc-stock/portainer-stack.yml` (Web editor), or choose **Repository** with URL `https://github.com/BryanSimp/stock-checker`, reference `refs/heads/main`, and compose path `mc-stock/portainer-stack.yml`.
+3. **Environment variables** on the stack: `DISCORD_WEBHOOK_URL` (required), `DISCORD_MENTION_ID`, `TZ`, and `MC_STOCK_DIR` if you used a folder other than `/opt/mc-stock`.
+4. Deploy. The container logs show one line per item, and Discord gets the startup summary.
+5. **Verify parsing (once):** in Portainer, open the container's console (or run `docker exec -it mc-stock python /app/checker.py --once --dry-run` on the host). It prints each item's status, count, price and store without posting to Discord.
+
+**Updating:**
+- New code: Stacks → mc-stock → **Update the stack** with **Re-pull image** on. A Repository stack can also use automatic updates or a webhook.
+- Config only: edit `/opt/mc-stock/config.yaml`, then restart the container.
+
+## Setup with local build (docker compose)
 
 ```bash
 cd mc-stock
